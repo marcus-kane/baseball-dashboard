@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+
+# Generated pipeline outputs — not needed in repo
+data/raw/
+data/processed/
+dashboard/*.png
+dashboard/*.csv
+
+# Logs
+logs/
+
+# The database IS committed (Streamlit Cloud needs it)
+# data/database/baseball.db  <-- intentionally tracked
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Streamlit secrets (if you add API keys later)
+.streamlit/secrets.toml
