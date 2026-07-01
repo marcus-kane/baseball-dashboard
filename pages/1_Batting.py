@@ -9,8 +9,10 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import web_data as db
+import sidebar as sb
+from config import TEAM_BY_ID
 
-st.set_page_config(page_title="Batting · Reading", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="Batting · Phillies Org", page_icon="⚡", layout="wide")
 
 st.markdown("""
 <style>
@@ -20,21 +22,22 @@ h2 { border-left: 4px solid #8B0000; padding-left: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-with st.sidebar:
-    st.markdown("## ⚾ Reading Fightin Phils")
-    st.markdown("**2025 · Double-A Northeast**")
-    st.divider()
+season, team_id = sb.render("Batting")
 
-    st.markdown("**Filters**")
+df = db.batting(season=season, team_id=team_id)
+
+# ── Sidebar filters (below shared sidebar controls) ───────────────────────────
+with st.sidebar:
+    st.divider()
+    st.markdown("**Stat Filters**")
     min_pa = st.slider("Minimum Plate Appearances", 0, 400, 30, step=10)
-    pos_options = ["All"] + sorted(db.batting()["position"].dropna().unique().tolist())
-    pos_filter  = st.selectbox("Position", pos_options)
+    pos_opts = ["All"] + sorted(df["position"].dropna().unique().tolist()) if not df.empty else ["All"]
+    pos_filter  = st.selectbox("Position", pos_opts)
     bats_filter = st.radio("Bats", ["All", "L", "R", "S"])
 
-st.title("⚡ Batting Stats — 2025")
-st.caption("All regular-season stats via MLB Stats API · FIP constant = 3.10")
-
-df = db.batting()
+team_label = TEAM_BY_ID[team_id]["team_name"] if team_id else "Phillies Organization"
+st.title(f"⚡ Batting — {team_label} {season}")
+st.caption("All regular-season stats via MLB Stats API")
 
 # Apply filters
 df = df[df["pa"].fillna(0) >= min_pa]
@@ -43,13 +46,17 @@ if pos_filter != "All":
 if bats_filter != "All":
     df = df[df["bats"] == bats_filter]
 
+if df.empty:
+    st.info("No batting data found for this selection. Run `py main.py` or adjust filters.")
+    st.stop()
+
 # ── Summary metrics ───────────────────────────────────────────────────────────
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Players shown", len(df))
 c2.metric("Avg OPS",  f"{df['ops'].mean():.3f}"  if not df.empty else "—")
 c3.metric("Avg AVG",  f"{df['avg'].mean():.3f}"  if not df.empty else "—")
-c4.metric("Total HR", int(df["hr"].fillna(0).sum()) if not df.empty else 0)
-c5.metric("Total SB", int(df["sb"].fillna(0).sum()) if not df.empty else 0)
+c4.metric("Total HR", int(df["hr"].fillna(0).sum()))
+c5.metric("Total SB", int(df["sb"].fillna(0).sum()))
 
 st.divider()
 
@@ -57,7 +64,7 @@ st.divider()
 st.subheader("Full Batting Table")
 st.caption("Click any column header to sort")
 
-display_cols = {
+base_cols = {
     "player_name": "Player", "position": "Pos", "bats": "B",
     "games": "G", "pa": "PA", "ab": "AB", "runs": "R",
     "hits": "H", "doubles": "2B", "triples": "3B", "hr": "HR",
@@ -66,6 +73,10 @@ display_cols = {
     "babip": "BABIP", "iso": "ISO", "bb_pct": "BB%", "k_pct": "K%",
     "xbh": "XBH", "gdp": "GDP",
 }
+if team_id is None:
+    base_cols = {"org_level": "Level", "team_name": "Team", **base_cols}
+
+display_cols = {k: v for k, v in base_cols.items() if k in df.columns}
 table = df[list(display_cols.keys())].rename(columns=display_cols)
 
 st.dataframe(
@@ -93,21 +104,22 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("OPS Leaders")
     top = df.nlargest(min(15, len(df)), "ops")
+    color_col = "org_level" if (team_id is None and "org_level" in top.columns) else "ops"
     fig = px.bar(
         top.sort_values("ops"),
         x="ops", y="player_name",
         orientation="h",
-        color="ops",
-        color_continuous_scale=["#4a0000", "#8B0000", "#FF6B6B"],
-        labels={"ops": "OPS", "player_name": ""},
+        color=color_col,
+        color_discrete_map={"MLB":"#E41134","AAA":"#FFD700","AA":"#8B0000"} if color_col=="org_level" else None,
+        color_continuous_scale=None if color_col=="org_level" else ["#4a0000","#8B0000","#FF6B6B"],
+        labels={"ops": "OPS", "player_name": "", "org_level": "Level"},
         hover_data={"avg": ":.3f", "obp": ":.3f", "slg": ":.3f", "hr": True, "rbi": True},
         text="ops",
     )
     fig.update_traces(texttemplate="%{text:.3f}", textposition="outside")
     fig.update_layout(
         coloraxis_showscale=False,
-        height=460,
-        margin=dict(t=10, l=130, r=60),
+        height=460, margin=dict(t=10, l=130, r=60),
         plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
         font_color="#ccc", yaxis_title="",
     )
@@ -121,7 +133,7 @@ with col2:
         x="hr", y="player_name",
         orientation="h",
         color="hr",
-        color_continuous_scale=["#0a0a2e", "#1a1a8e", "#4444FF"],
+        color_continuous_scale=["#0a0a2e","#1a1a8e","#4444FF"],
         labels={"hr": "Home Runs", "player_name": ""},
         hover_data={"rbi": True, "avg": ":.3f", "ops": ":.3f"},
         text="hr",
@@ -129,8 +141,7 @@ with col2:
     fig2.update_traces(texttemplate="%{text}", textposition="outside")
     fig2.update_layout(
         coloraxis_showscale=False,
-        height=460,
-        margin=dict(t=10, l=130, r=60),
+        height=460, margin=dict(t=10, l=130, r=60),
         plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
         font_color="#ccc", yaxis_title="",
     )
@@ -162,7 +173,6 @@ if not scatter_df.empty:
         font_color="#ccc",
         coloraxis_colorbar=dict(title="ISO"),
     )
-    # Label top 5 by OPS
     top5 = scatter_df.nlargest(5, "ops")
     for _, row in top5.iterrows():
         fig3.add_annotation(

@@ -9,8 +9,10 @@ import streamlit as st
 import pandas as pd
 
 import web_data as db
+import sidebar as sb
+from config import TEAM_BY_ID
 
-st.set_page_config(page_title="Transactions · Reading", page_icon="🔄", layout="wide")
+st.set_page_config(page_title="Transactions · Phillies Org", page_icon="🔄", layout="wide")
 
 st.markdown("""
 <style>
@@ -20,26 +22,41 @@ h2 { border-left: 4px solid #8B0000; padding-left: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-df = db.transactions()
+season, team_id = sb.render("Transactions")
+
+display_team_id = team_id or 522
+df_raw = db.transactions(team_id=display_team_id, season=season)
+df = df_raw.copy()
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
+team_label = TEAM_BY_ID.get(display_team_id, {}).get("team_name", "Team")
+
 with st.sidebar:
-    st.markdown("## ⚾ Reading Fightin Phils")
-    st.markdown("**2025 · Double-A Northeast**")
     st.divider()
     st.markdown("**Filters**")
 
     search = st.text_input("Search player name", placeholder="e.g. Reyes")
 
-    types = ["All"] + sorted(df["type_desc"].dropna().unique().tolist())
+    types = ["All"] + sorted(df["type_desc"].dropna().unique().tolist()) if not df.empty else ["All"]
     type_filter = st.selectbox("Transaction type", types)
 
-    months = sorted(df["date"].dt.month.dropna().unique().tolist())
-    month_names = {4:"April",5:"May",6:"June",7:"July",8:"August",9:"September"}
-    month_opts  = ["All"] + [month_names.get(m, str(m)) for m in months]
+    if not df.empty:
+        months = sorted(df["date"].dt.month.dropna().unique().tolist())
+        month_names = {3:"March",4:"April",5:"May",6:"June",7:"July",8:"August",9:"September",10:"October"}
+        month_opts  = ["All"] + [month_names.get(m, str(m)) for m in months]
+    else:
+        month_opts  = ["All"]
+        month_names = {}
     month_filter = st.selectbox("Month", month_opts)
 
-st.title("🔄 Transactions — 2025")
+    if not team_id:
+        st.info("Showing Reading (AA) · select a specific level for other teams")
+
+st.title(f"🔄 Transactions — {team_label} {season}")
+
+if df.empty:
+    st.info("No transaction data found. Run `py main.py` or choose a different team/season.")
+    st.stop()
 
 # Apply filters
 fdf = df.copy()
@@ -78,15 +95,13 @@ if not monthly.empty:
         monthly,
         x="month_name", y="count",
         color="type_desc",
-        labels={"month_name": "Month", "count": "Transactions", "type_desc": "Type"},
+        labels={"month_name":"Month","count":"Transactions","type_desc":"Type"},
         barmode="stack",
     )
     fig.update_layout(
-        height=300,
-        margin=dict(t=10, b=40),
+        height=300, margin=dict(t=10, b=40),
         plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
-        font_color="#ccc",
-        legend=dict(orientation="h", y=1.05),
+        font_color="#ccc", legend=dict(orientation="h", y=1.05),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -105,8 +120,7 @@ with col_pie:
     fig2.update_layout(
         height=320,
         plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
-        font_color="#ccc",
-        margin=dict(t=20),
+        font_color="#ccc", margin=dict(t=20),
         legend=dict(font=dict(size=10)),
     )
     st.plotly_chart(fig2, use_container_width=True)
@@ -130,21 +144,18 @@ st.divider()
 st.subheader(f"Transaction Log ({len(fdf)} entries)")
 
 display = fdf.copy()
-display["date"] = display["date"].dt.strftime("%Y-%m-%d")
+display["date"]      = display["date"].dt.strftime("%Y-%m-%d")
 display["from_team"] = display["from_team"].fillna("—")
 display["to_team"]   = display["to_team"].fillna("—")
 
 display = display.rename(columns={
-    "date":        "Date",
-    "player_name": "Player",
-    "type_desc":   "Type",
-    "from_team":   "From",
-    "to_team":     "To",
-    "description": "Description",
+    "date":"Date","player_name":"Player","type_desc":"Type",
+    "from_team":"From","to_team":"To","description":"Description",
 })
 
+cols_show = [c for c in ["Date","Player","Type","From","To","Description"] if c in display.columns]
 st.dataframe(
-    display[["Date","Player","Type","From","To","Description"]].reset_index(drop=True),
+    display[cols_show].reset_index(drop=True),
     use_container_width=True,
     height=500,
     hide_index=True,
@@ -153,20 +164,26 @@ st.dataframe(
 # ── Roster movement summary ───────────────────────────────────────────────────
 st.divider()
 st.subheader("Roster Movement Summary")
-st.caption("Players promoted to / demoted from Reading during 2025")
+st.caption(f"Players promoted to / demoted from {team_label} during {season}")
+
+team_name_word = team_label.split()[0]  # e.g. "Reading", "Lehigh", "Philadelphia"
 
 promo_keywords = ["Assigned", "Recalled", "Promoted", "Selected"]
 demo_keywords  = ["Optioned", "Designated", "Released", "Transferred"]
 
-promotions = df[df["type_desc"].str.contains("|".join(promo_keywords), case=False, na=False)
-                & df["to_team"].str.contains("Reading", case=False, na=False)]
-demotions  = df[df["type_desc"].str.contains("|".join(demo_keywords), case=False, na=False)
-                & df["from_team"].str.contains("Reading", case=False, na=False)]
+promotions = df[
+    df["type_desc"].str.contains("|".join(promo_keywords), case=False, na=False)
+    & df["to_team"].str.contains(team_name_word, case=False, na=False)
+]
+demotions  = df[
+    df["type_desc"].str.contains("|".join(demo_keywords), case=False, na=False)
+    & df["from_team"].str.contains(team_name_word, case=False, na=False)
+]
 
 col_up, col_dn = st.columns(2)
 
 with col_up:
-    st.markdown(f"**Arrivals to Reading** ({len(promotions)})")
+    st.markdown(f"**Arrivals to {team_label}** ({len(promotions)})")
     if not promotions.empty:
         p = promotions[["date","player_name","type_desc","from_team"]].copy()
         p["date"] = pd.to_datetime(p["date"]).dt.strftime("%m/%d")
@@ -177,7 +194,7 @@ with col_up:
         st.info("None found under current data.")
 
 with col_dn:
-    st.markdown(f"**Departures from Reading** ({len(demotions)})")
+    st.markdown(f"**Departures from {team_label}** ({len(demotions)})")
     if not demotions.empty:
         d = demotions[["date","player_name","type_desc","to_team"]].copy()
         d["date"] = pd.to_datetime(d["date"]).dt.strftime("%m/%d")

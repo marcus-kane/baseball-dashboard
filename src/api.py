@@ -85,14 +85,16 @@ def fetch_pitching_stats(team_id: int = TEAM_ID, season: int = SEASON,
 
 
 def fetch_schedule(team_id: int = TEAM_ID, season: int = SEASON,
-                   sport_id: int = SPORT_ID) -> dict:
+                   sport_id: int = SPORT_ID,
+                   start_date: str = SEASON_START,
+                   end_date: str = SEASON_END) -> dict:
     data = _get("schedule", {
         "teamId": team_id,
         "season": season,
         "sportId": sport_id,
         "gameType": "R",
-        "startDate": SEASON_START,
-        "endDate": SEASON_END,
+        "startDate": start_date,
+        "endDate": end_date,
     })
     _save_raw(f"schedule_{team_id}_{season}", data)
     return data
@@ -117,11 +119,13 @@ def fetch_standings(league_id: int = LEAGUE_ID, season: int = SEASON) -> dict:
     return data
 
 
-def fetch_transactions(team_id: int = TEAM_ID, season: int = SEASON) -> dict:
+def fetch_transactions(team_id: int = TEAM_ID, season: int = SEASON,
+                       start_date: str = SEASON_START,
+                       end_date: str = SEASON_END) -> dict:
     data = _get("transactions", {
         "teamId": team_id,
-        "startDate": SEASON_START,
-        "endDate": SEASON_END,
+        "startDate": start_date,
+        "endDate": end_date,
     })
     _save_raw(f"transactions_{team_id}_{season}", data)
     return data

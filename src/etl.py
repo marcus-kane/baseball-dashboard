@@ -120,8 +120,8 @@ def extract_batting(raw: dict, team_id: int = TEAM_ID, season: int = SEASON) -> 
     return rows
 
 
-def load_batting(raw: dict) -> None:
-    rows = extract_batting(raw)
+def load_batting(raw: dict, team_id: int = TEAM_ID, season: int = SEASON) -> None:
+    rows = extract_batting(raw, team_id, season)
     bulk_upsert("batting_stats", rows)
     log.info("Loaded %d batting stat rows", len(rows))
 
@@ -183,8 +183,8 @@ def extract_pitching(raw: dict, team_id: int = TEAM_ID, season: int = SEASON) ->
     return rows
 
 
-def load_pitching(raw: dict) -> None:
-    rows = extract_pitching(raw)
+def load_pitching(raw: dict, team_id: int = TEAM_ID, season: int = SEASON) -> None:
+    rows = extract_pitching(raw, team_id, season)
     bulk_upsert("pitching_stats", rows)
     log.info("Loaded %d pitching stat rows", len(rows))
 
@@ -254,6 +254,7 @@ def extract_games(schedule_raw: dict, boxscores: dict[int, dict],
 
             rows.append({
                 "game_pk":          pk,
+                "team_id":          team_id,
                 "season":           season,
                 "game_date":        safe_str(game.get("gameDate", ""))[:10],
                 "home_away":        home_away,
@@ -282,21 +283,23 @@ def extract_games(schedule_raw: dict, boxscores: dict[int, dict],
     return rows
 
 
-def load_games(schedule_raw: dict, boxscores: dict, linescores: dict) -> None:
-    rows = extract_games(schedule_raw, boxscores, linescores)
+def load_games(schedule_raw: dict, boxscores: dict, linescores: dict,
+               team_id: int = TEAM_ID, season: int = SEASON) -> None:
+    rows = extract_games(schedule_raw, boxscores, linescores, team_id, season)
     bulk_upsert("games", rows)
     log.info("Loaded %d game rows", len(rows))
 
 
 # ── Standings ─────────────────────────────────────────────────────────────────
 
-def extract_standings(raw: dict, season: int = SEASON) -> list[dict]:
+def extract_standings(raw: dict, season: int = SEASON, league_id: int | None = None) -> list[dict]:
     rows = []
     from datetime import date
     snapshot = str(date.today())
 
     for record in raw.get("records", []):
-        div_id = safe_int(record.get("division", {}).get("id"))
+        div_id  = safe_int(record.get("division", {}).get("id"))
+        lg_id   = league_id or safe_int(record.get("league", {}).get("id"))
         for tr in record.get("teamRecords", []):
             team   = tr.get("team", {})
             lr     = tr.get("leagueRecord", {})
@@ -310,6 +313,7 @@ def extract_standings(raw: dict, season: int = SEASON) -> list[dict]:
                 "snapshot_date": snapshot,
                 "team_id":      safe_int(team.get("id")),
                 "team_name":    safe_str(team.get("name")),
+                "league_id":    lg_id,
                 "division_id":  div_id,
                 "wins":         safe_int(lr.get("wins")),
                 "losses":       safe_int(lr.get("losses")),
@@ -332,8 +336,8 @@ def extract_standings(raw: dict, season: int = SEASON) -> list[dict]:
     return rows
 
 
-def load_standings(raw: dict) -> None:
-    rows = extract_standings(raw)
+def load_standings(raw: dict, season: int = SEASON, league_id: int | None = None) -> None:
+    rows = extract_standings(raw, season, league_id)
     bulk_upsert("standings", rows)
     log.info("Loaded %d standing rows", len(rows))
 

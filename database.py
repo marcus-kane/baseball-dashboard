@@ -16,12 +16,14 @@ DDL = """
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
 
+-- org level stored on teams table so queries can filter by MLB/AAA/AA
 CREATE TABLE IF NOT EXISTS teams (
     team_id     INTEGER PRIMARY KEY,
     team_name   TEXT NOT NULL,
     season      INTEGER NOT NULL,
     sport_id    INTEGER,
     league_id   INTEGER,
+    org_level   TEXT,
     venue_name  TEXT,
     UNIQUE(team_id, season)
 );
@@ -126,6 +128,7 @@ CREATE TABLE IF NOT EXISTS pitching_stats (
 
 CREATE TABLE IF NOT EXISTS games (
     game_pk             INTEGER PRIMARY KEY,
+    team_id             INTEGER DEFAULT 522,  -- which org team this game belongs to
     season              INTEGER NOT NULL,
     game_date           TEXT NOT NULL,
     home_away           TEXT NOT NULL,        -- 'home' or 'away'
@@ -158,6 +161,7 @@ CREATE TABLE IF NOT EXISTS standings (
     snapshot_date   TEXT NOT NULL,
     team_id         INTEGER NOT NULL,
     team_name       TEXT,
+    league_id       INTEGER,
     division_id     INTEGER,
     wins            INTEGER,
     losses          INTEGER,
@@ -198,6 +202,16 @@ CREATE INDEX IF NOT EXISTS idx_pitching_player ON pitching_stats(player_id);
 CREATE INDEX IF NOT EXISTS idx_pitching_team   ON pitching_stats(team_id, season);
 CREATE INDEX IF NOT EXISTS idx_games_date      ON games(game_date);
 CREATE INDEX IF NOT EXISTS idx_standings_team  ON standings(team_id, season);
+
+CREATE TABLE IF NOT EXISTS prospects (
+    rank            INTEGER NOT NULL,
+    player_name     TEXT NOT NULL,
+    position        TEXT,
+    eta             INTEGER,
+    notes           TEXT,
+    player_id       INTEGER,   -- matched from roster table (NULL if not yet in org DB)
+    PRIMARY KEY (rank)
+);
 """
 
 
@@ -215,10 +229,32 @@ def get_conn() -> Generator[sqlite3.Connection, None, None]:
         conn.close()
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Apply schema migrations that can't be handled by CREATE TABLE IF NOT EXISTS."""
+    # Add org_level to teams if missing (added for multi-team org support)
+    cols_t = {r[1] for r in conn.execute("PRAGMA table_info(teams)")}
+    if "org_level" not in cols_t:
+        conn.execute("ALTER TABLE teams ADD COLUMN org_level TEXT")
+        log.info("Migration: added org_level column to teams table")
+
+    # Add team_id to games if missing
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(games)")}
+    if "team_id" not in cols:
+        conn.execute("ALTER TABLE games ADD COLUMN team_id INTEGER DEFAULT 522")
+        log.info("Migration: added team_id column to games table")
+
+    # Add league_id to standings if missing
+    cols_s = {r[1] for r in conn.execute("PRAGMA table_info(standings)")}
+    if "league_id" not in cols_s:
+        conn.execute("ALTER TABLE standings ADD COLUMN league_id INTEGER")
+        log.info("Migration: added league_id column to standings table")
+
+
 def init_db() -> None:
-    """Create all tables if they don't exist."""
+    """Create all tables if they don't exist, then apply migrations."""
     with get_conn() as conn:
         conn.executescript(DDL)
+        _migrate(conn)
     log.info("Database initialized: %s", DB_PATH)
 
 

@@ -9,8 +9,10 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import web_data as db
+import sidebar as sb
+from config import TEAM_BY_ID
 
-st.set_page_config(page_title="Pitching · Reading", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="Pitching · Phillies Org", page_icon="🎯", layout="wide")
 
 st.markdown("""
 <style>
@@ -20,19 +22,20 @@ h2 { border-left: 4px solid #8B0000; padding-left: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
+season, team_id = sb.render("Pitching")
+
+df = db.pitching(season=season, team_id=team_id)
+
 with st.sidebar:
-    st.markdown("## ⚾ Reading Fightin Phils")
-    st.markdown("**2025 · Double-A Northeast**")
     st.divider()
-    st.markdown("**Filters**")
+    st.markdown("**Stat Filters**")
     min_ip   = st.slider("Minimum Innings Pitched", 0, 150, 10, step=5)
     role_opt = st.radio("Role", ["All", "Starter", "Reliever"])
     hand_opt = st.radio("Throws", ["All", "R", "L"])
 
-st.title("🎯 Pitching Stats — 2025")
-st.caption("All regular-season stats · FIP = (13×HR + 3×(BB+HBP) − 2×K) / IP + 3.10")
-
-df = db.pitching()
+team_label = TEAM_BY_ID[team_id]["team_name"] if team_id else "Phillies Organization"
+st.title(f"🎯 Pitching — {team_label} {season}")
+st.caption("FIP = (13×HR + 3×(BB+HBP) − 2×K) / IP + 3.10")
 
 # Apply filters
 df = df[df["ip"].fillna(0) >= min_ip]
@@ -40,6 +43,10 @@ if role_opt != "All":
     df = df[df["role"] == role_opt]
 if hand_opt != "All":
     df = df[df["throws_hand"] == hand_opt]
+
+if df.empty:
+    st.info("No pitching data found for this selection. Run `py main.py` or adjust filters.")
+    st.stop()
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
 c1, c2, c3, c4, c5 = st.columns(5)
@@ -62,7 +69,7 @@ st.divider()
 st.subheader("Full Pitching Table")
 st.caption("Click any column header to sort")
 
-display_cols = {
+base_cols = {
     "player_name": "Player", "throws_hand": "T", "role": "Role",
     "games": "G", "games_started": "GS", "wins": "W", "losses": "L",
     "saves": "SV", "holds": "HLD", "blown_saves": "BS",
@@ -72,6 +79,10 @@ display_cols = {
     "opp_avg": "OppAVG", "hbp": "HBP", "wild_pitches": "WP",
     "k_pct": "K%", "bb_pct": "BB%",
 }
+if team_id is None:
+    base_cols = {"org_level": "Level", "team_name": "Team", **base_cols}
+
+display_cols = {k: v for k, v in base_cols.items() if k in df.columns}
 table = df[list(display_cols.keys())].rename(columns=display_cols)
 
 st.dataframe(
@@ -100,51 +111,53 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("ERA Leaders *(qualified)*")
-    qual = df[df["ip"].fillna(0) >= 20].nsmallest(min(12, len(df[df["ip"]>=20])), "era")
-    fig = px.bar(
-        qual.sort_values("era", ascending=False),
-        x="era", y="player_name", orientation="h",
-        color="era",
-        color_continuous_scale=["#2ECC71", "#F39C12", "#E74C3C"],
-        labels={"era": "ERA", "player_name": ""},
-        hover_data={"whip": ":.2f", "ip": ":.1f", "so": True, "bb": True},
-        text="era",
-    )
-    fig.update_traces(texttemplate="%{text:.2f}", textposition="outside")
-    fig.update_layout(
-        coloraxis_showscale=False,
-        height=420,
-        margin=dict(t=10, l=140, r=60),
-        plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
-        font_color="#ccc", yaxis_title="",
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    qual = df[df["ip"].fillna(0) >= 20].nsmallest(min(12, max(1, len(df[df["ip"].fillna(0)>=20]))), "era")
+    if not qual.empty:
+        color_col = "org_level" if (team_id is None and "org_level" in qual.columns) else "era"
+        fig = px.bar(
+            qual.sort_values("era", ascending=False),
+            x="era", y="player_name", orientation="h",
+            color=color_col,
+            color_continuous_scale=["#2ECC71","#F39C12","#E74C3C"] if color_col=="era" else None,
+            color_discrete_map={"MLB":"#E41134","AAA":"#FFD700","AA":"#8B0000"} if color_col!="era" else None,
+            labels={"era": "ERA", "player_name": "", "org_level": "Level"},
+            hover_data={"whip": ":.2f", "ip": ":.1f", "so": True, "bb": True},
+            text="era",
+        )
+        fig.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+        fig.update_layout(
+            coloraxis_showscale=False,
+            height=420, margin=dict(t=10, l=140, r=60),
+            plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
+            font_color="#ccc", yaxis_title="",
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
 with col2:
     st.subheader("K/9 Leaders *(qualified)*")
-    qual_k = df[df["ip"].fillna(0) >= 20].nlargest(min(12, len(df[df["ip"]>=20])), "k9")
-    fig2 = px.bar(
-        qual_k.sort_values("k9"),
-        x="k9", y="player_name", orientation="h",
-        color="k9",
-        color_continuous_scale=["#1a1a5e", "#3333cc", "#8888FF"],
-        labels={"k9": "K/9", "player_name": ""},
-        hover_data={"era": ":.2f", "ip": ":.1f", "bb9": ":.2f"},
-        text="k9",
-    )
-    fig2.update_traces(texttemplate="%{text:.2f}", textposition="outside")
-    fig2.update_layout(
-        coloraxis_showscale=False,
-        height=420,
-        margin=dict(t=10, l=140, r=60),
-        plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
-        font_color="#ccc", yaxis_title="",
-    )
-    st.plotly_chart(fig2, use_container_width=True)
+    qual_k = df[df["ip"].fillna(0) >= 20].nlargest(min(12, max(1, len(df[df["ip"].fillna(0)>=20]))), "k9")
+    if not qual_k.empty:
+        fig2 = px.bar(
+            qual_k.sort_values("k9"),
+            x="k9", y="player_name", orientation="h",
+            color="k9",
+            color_continuous_scale=["#1a1a5e","#3333cc","#8888FF"],
+            labels={"k9": "K/9", "player_name": ""},
+            hover_data={"era": ":.2f", "ip": ":.1f", "bb9": ":.2f"},
+            text="k9",
+        )
+        fig2.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+        fig2.update_layout(
+            coloraxis_showscale=False,
+            height=420, margin=dict(t=10, l=140, r=60),
+            plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
+            font_color="#ccc", yaxis_title="",
+        )
+        st.plotly_chart(fig2, use_container_width=True)
 
 # ── Scatter: K/9 vs BB/9 ──────────────────────────────────────────────────────
 st.subheader("Command Map: K/9 vs BB/9")
-st.caption("Top-right = high strikeouts + high walks · Top-left = dominant (high K, low BB)")
+st.caption("Top-left = dominant (high K, low BB) · bubble = IP")
 
 scatter_df = df[df["ip"].fillna(0) >= 5].dropna(subset=["k9", "bb9"])
 if not scatter_df.empty:
@@ -161,10 +174,8 @@ if not scatter_df.empty:
     )
     avg_k9  = scatter_df["k9"].mean()
     avg_bb9 = scatter_df["bb9"].mean()
-    fig3.add_vline(x=avg_bb9, line_dash="dash", line_color="#555",
-                   annotation_text="Avg BB/9")
-    fig3.add_hline(y=avg_k9,  line_dash="dash", line_color="#555",
-                   annotation_text="Avg K/9")
+    fig3.add_vline(x=avg_bb9, line_dash="dash", line_color="#555", annotation_text="Avg BB/9")
+    fig3.add_hline(y=avg_k9,  line_dash="dash", line_color="#555", annotation_text="Avg K/9")
     fig3.update_layout(
         height=420,
         plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
@@ -195,8 +206,7 @@ if not era_df.empty:
                 hovertemplate="ERA: %{y:.2f}<extra>" + role + "</extra>",
             )
     fig4.update_layout(
-        yaxis_title="ERA",
-        height=350,
+        yaxis_title="ERA", height=350,
         plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
         font_color="#ccc",
     )
@@ -209,11 +219,12 @@ if not sv_df.empty:
     col_sv, col_hld = st.columns(2)
     with col_sv:
         st.markdown("**Saves**")
+        sv_show = [c for c in ["player_name","games","saves","save_opps","blown_saves","era","whip"] if c in sv_df.columns]
         st.dataframe(
-            sv_df[["player_name", "games", "saves", "save_opps", "blown_saves", "era", "whip"]]
-            .rename(columns={"player_name": "Player", "games": "G", "saves": "SV",
-                             "save_opps": "SVO", "blown_saves": "BS", "era": "ERA", "whip": "WHIP"})
-            .reset_index(drop=True),
+            sv_df[sv_show].rename(columns={
+                "player_name":"Player","games":"G","saves":"SV",
+                "save_opps":"SVO","blown_saves":"BS","era":"ERA","whip":"WHIP"
+            }).reset_index(drop=True),
             use_container_width=True, hide_index=True,
             column_config={
                 "ERA":  st.column_config.NumberColumn(format="%.2f"),
@@ -225,10 +236,9 @@ if not sv_df.empty:
         st.markdown("**Holds**")
         if not hld_df.empty:
             st.dataframe(
-                hld_df[["player_name", "games", "holds", "era", "whip"]]
-                .rename(columns={"player_name": "Player", "games": "G",
-                                 "holds": "HLD", "era": "ERA", "whip": "WHIP"})
-                .reset_index(drop=True),
+                hld_df[["player_name","games","holds","era","whip"]].rename(columns={
+                    "player_name":"Player","games":"G","holds":"HLD","era":"ERA","whip":"WHIP"
+                }).reset_index(drop=True),
                 use_container_width=True, hide_index=True,
                 column_config={
                     "ERA":  st.column_config.NumberColumn(format="%.2f"),
