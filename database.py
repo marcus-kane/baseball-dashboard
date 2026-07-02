@@ -2,6 +2,7 @@
 SQLite schema creation and upsert helpers.
 All writes go through this module so the rest of the pipeline never touches raw SQL.
 """
+from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager

@@ -2,6 +2,7 @@
 ETL pipeline: pull raw API data → flatten → insert into SQLite.
 Each extract_* function returns a list of clean dicts ready for bulk_upsert.
 """
+from __future__ import annotations
 
 from typing import Any
 

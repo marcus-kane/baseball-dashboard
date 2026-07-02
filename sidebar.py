@@ -2,6 +2,7 @@
 Shared sidebar component used by every page.
 Provides: season picker, level/team filter, on-demand refresh button.
 """
+from __future__ import annotations
 
 import subprocess
 import sys

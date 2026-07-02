@@ -2,6 +2,7 @@
 Cached data-access layer for the Streamlit app.
 All pages import from here — one place to change if the schema changes.
 """
+from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
